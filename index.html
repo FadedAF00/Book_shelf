@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Virtual Bookshelf Scanner</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- html5-qrcode CDN -->
+  <script src="https://unpkg.com/html5-qrcode" defer></script>
+  <style>
+    body { min-height: 100vh; }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans">
+  <div class="max-w-md mx-auto py-4 px-2">
+    <header class="mb-4 flex items-center justify-between">
+      <h1 class="text-2xl font-bold">📚 Virtual Bookshelf</h1>
+      <button id="clear-shelf" class="px-4 py-1 rounded bg-gray-700 hover:bg-red-700 transition text-sm">Clear Shelf</button>
+    </header>
+
+    <main>
+      <!-- Scan Section -->
+      <div class="mb-5">
+        <button id="scan-btn" class="w-full py-3 mb-2 rounded bg-blue-600 hover:bg-blue-700 font-semibold text-lg">Scan Book Barcode</button>
+        <div id="scanner-container" class="hidden bg-gray-800 rounded p-2">
+          <div id="qr-reader" style="width:100%"></div>
+          <button id="close-scanner" class="mt-2 w-full py-2 bg-gray-700 rounded">Close Camera</button>
+        </div>
+      </div>
+
+      <!-- Book Info Display -->
+      <div id="result" class="mb-6"></div>
+
+      <!-- Virtual Shelf -->
+      <h2 class="text-xl font-semibold mb-2 mt-8">🗂️ Your Virtual Shelf</h2>
+      <div id="shelf" class="space-y-3"></div>
+    </main>
+  </div>
+
+<script>
+const shelfKey = "virtual_bookshelf_shelf";
+
+// Elements
+const scanBtn = document.getElementById('scan-btn');
+const scannerContainer = document.getElementById('scanner-container');
+const qrReaderElem = document.getElementById('qr-reader');
+const closeScannerBtn = document.getElementById('close-scanner');
+const resultSection = document.getElementById('result');
+const shelfSection = document.getElementById('shelf');
+const clearShelfBtn = document.getElementById('clear-shelf');
+
+let html5Qrcode;
+let isScannerOpen = false;
+
+function showMsg(msg, type="info") {
+  resultSection.innerHTML = `<div class="mb-3 p-3 rounded ${type === "error" ? "bg-red-800" : "bg-gray-800"}">${msg}</div>`;
+}
+
+function startScanner() {
+  scannerContainer.classList.remove('hidden');
+  resultSection.innerHTML = "";
+  if (!html5Qrcode) html5Qrcode = new Html5Qrcode("qr-reader");
+  Html5Qrcode.getCameras().then(cameras => {
+    if (!cameras || cameras.length === 0) {
+      showMsg('No camera found', 'error');
+      return;
+    }
+    html5Qrcode.start(
+      { facingMode: "environment" },
+      { fps: 10, qrbox: 280 },
+      (decodedText) => {
+        html5Qrcode.stop();
+        scannerContainer.classList.add('hidden');
+        findBookByISBN(decodedText.replace(/[^0-9X]/gi, ''));
+      },
+      (errorMessage) => { /* ignore read errors */ }
+    );
+  }).catch(err => showMsg("Camera error: " + err, 'error'));
+  isScannerOpen = true;
+}
+
+function stopScanner() {
+  if (html5Qrcode && isScannerOpen) {
+    html5Qrcode.stop().catch(() => {});
+    scannerContainer.classList.add('hidden');
+    isScannerOpen = false;
+  }
+}
+
+scanBtn.onclick = startScanner;
+closeScannerBtn.onclick = stopScanner;
+
+// ---- Book and Shelf Logic ----
+
+function findBookByISBN(isbn) {
+  showMsg(`Looking up ISBN: <b>${isbn}</b> ...`);
+  fetch(`https://www.googleapis.com/books/v1/volumes?q=isbn:${isbn}`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.items || data.items.length === 0) {
+        showMsg("No book found for this ISBN 😬", 'error');
+        return;
+      }
+      const volume = data.items[0].volumeInfo;
+      showBook(volume, isbn);
+      addToShelf({isbn, ...extractBookData(volume)});
+    })
+    .catch(() => showMsg('Failed to access Google Books API.', 'error'));
+}
+
+function extractBookData(volume) {
+  return {
+    title: volume.title,
+    authors: volume.authors ? volume.authors.join(", ") : "Unknown",
+    cover: volume.imageLinks?.thumbnail || "",
+    categories: volume.categories || [],
+  };
+}
+
+function showBook(volume, isbn) {
+  const {title, authors, imageLinks, categories} = volume;
+  const thumb = imageLinks?.thumbnail || '';
+  const category = categories && categories.length ? categories[0] : '';
+  // Recommendation button
+  resultSection.innerHTML =
+    `<div class="bg-gray-800 rounded p-4 flex flex-col items-center">
+      ${thumb ? `<img src="${thumb}" alt="Cover" class="w-32 rounded shadow mb-2">` : ''}
+      <div class="text-lg font-semibold">${title || "No title"}</div>
+      <div class="mb-3 text-gray-400">${authors ? authors.join(', ') : 'Unknown Author'}</div>
+      <button id="rec-btn" class="w-full py-2 rounded bg-purple-700 mt-2 mb-1 hover:bg-purple-800 transition">Get Similar Books</button>
+    </div>`;
+  document.getElementById('rec-btn').onclick = () => getRecommendations({authors, categories: volume.categories || [""], excludeIsbn: isbn});
+}
+
+function getRecommendations({authors, categories, excludeIsbn}) {
+  resultSection.innerHTML = `<div class="bg-gray-800 rounded p-4">Looking for similar books...</div>`;
+  let query = '';
+  if (categories && categories[0]) query = `subject:${encodeURIComponent(categories[0])}`;
+  else if (authors && authors[0]) query = `inauthor:${encodeURIComponent(authors[0])}`;
+  else query = ''; // fallback
+
+  fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}&maxResults=6`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.items || data.items.length < 2) {
+        resultSection.innerHTML += '<div class="text-red-400 mt-2">No recommendations found.</div>';
+        return;
+      }
+      const recBooks = data.items
+        .map(item => item.volumeInfo)
+        .filter(v => !(v.industryIdentifiers && v.industryIdentifiers.some(id => id.identifier === excludeIsbn)))
+        .slice(0, 5);
+
+      resultSection.innerHTML =
+        `<div class="bg-gray-800 rounded p-4">
+          <span class="font-bold mb-2 block">Similar Books:</span>
+          <div class="flex overflow-x-scroll space-x-3 pb-2">
+            ${recBooks.map(v =>
+              `<div class="flex-none w-40 bg-gray-900 rounded p-2">
+                ${v.imageLinks?.thumbnail ? `<img src="${v.imageLinks.thumbnail}" class="rounded mb-1 w-full">` : ''}
+                <div class="text-gray-100 font-semibold text-sm mb-1">${v.title || 'No Title'}</div>
+                <div class="text-gray-400 text-xs">${v.authors ? v.authors.join(', ') : 'Unknown Author'}</div>
+              </div>`).join("")}
+          </div>
+        </div>`;
+    });
+}
+
+// --- LocalStorage Shelf ---
+
+function loadShelf() {
+  const shelf = JSON.parse(localStorage.getItem(shelfKey) || "[]");
+  return shelf;
+}
+
+function addToShelf(book) {
+  let shelf = loadShelf();
+  // Avoid duplicates by ISBN
+  if (!shelf.find(b => b.isbn === book.isbn)) {
+    shelf.push(book);
+    localStorage.setItem(shelfKey, JSON.stringify(shelf));
+    renderShelf();
+  }
+}
+
+function removeFromShelf(isbn) {
+  let shelf = loadShelf().filter(b => b.isbn !== isbn);
+  localStorage.setItem(shelfKey, JSON.stringify(shelf));
+  renderShelf();
+}
+
+function renderShelf() {
+  const shelf = loadShelf();
+  if (shelf.length === 0) {
+    shelfSection.innerHTML = `<div class="text-gray-500">No books yet. Scan your first barcode!</div>`;
+    return;
+  }
+
+  shelfSection.innerHTML = shelf.map(book => `
+    <div class="flex items-center bg-gray-800 rounded p-2 shadow">
+      ${book.cover ? `<img src="${book.cover}" alt="Cover" class="w-16 h-24 object-cover mr-2 rounded">` : ''}
+      <div class="flex-1 min-w-0">
+        <div class="font-bold text-md truncate">${book.title}</div>
+        <div class="text-gray-400 text-sm truncate">${book.authors}</div>
+        <div class="text-xs text-gray-500 mt-1">ISBN: ${book.isbn}</div>
+      </div>
+      <button onclick="(function(){removeFromShelf('${book.isbn}'); return false;})()" class="ml-2 px-2 py-1 text-sm rounded bg-red-700 hover:bg-red-800">✕</button>
+    </div>
+  `).join("");
+}
+
+window.removeFromShelf = removeFromShelf; // For inline onclick
+
+clearShelfBtn.onclick = () => {
+  localStorage.removeItem(shelfKey);
+  renderShelf();
+  resultSection.innerHTML = ""
+};
+
+//--- Init
+renderShelf();
+</script>
+</body>
+</html>
