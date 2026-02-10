@@ -23,9 +23,40 @@
       <!-- Scan Section -->
       <div class="mb-5">
         <button id="scan-btn" class="w-full py-3 mb-2 rounded bg-blue-600 hover:bg-blue-700 font-semibold text-lg">Scan Book Barcode</button>
+        <button id="manual-btn" class="w-full py-3 mb-2 rounded bg-green-600 hover:bg-green-700 font-semibold text-lg">Enter Manually</button>
+        
         <div id="scanner-container" class="hidden bg-gray-800 rounded p-2">
           <div id="qr-reader" style="width:100%"></div>
           <button id="close-scanner" class="mt-2 w-full py-2 bg-gray-700 rounded">Close Camera</button>
+        </div>
+
+        <!-- Manual Entry Form -->
+        <div id="manual-container" class="hidden bg-gray-800 rounded p-4">
+          <h3 class="text-lg font-semibold mb-3">Manual Entry</h3>
+          
+          <!-- ISBN Entry -->
+          <div class="mb-4">
+            <label class="block text-sm mb-1 text-gray-300">ISBN Number</label>
+            <div class="flex gap-2">
+              <input type="text" id="isbn-input" placeholder="Enter ISBN" class="flex-1 px-3 py-2 rounded bg-gray-700 text-gray-100 border border-gray-600 focus:outline-none focus:border-blue-500">
+              <button id="isbn-submit" class="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700">Search</button>
+            </div>
+          </div>
+
+          <div class="text-center text-gray-400 mb-4">— OR —</div>
+
+          <!-- Book Name & Author Entry -->
+          <div class="mb-4">
+            <label class="block text-sm mb-1 text-gray-300">Book Name</label>
+            <input type="text" id="book-name-input" placeholder="Enter book title" class="w-full px-3 py-2 rounded bg-gray-700 text-gray-100 border border-gray-600 focus:outline-none focus:border-blue-500 mb-2">
+            
+            <label class="block text-sm mb-1 text-gray-300">Author</label>
+            <input type="text" id="author-input" placeholder="Enter author name" class="w-full px-3 py-2 rounded bg-gray-700 text-gray-100 border border-gray-600 focus:outline-none focus:border-blue-500 mb-2">
+            
+            <button id="book-search-submit" class="w-full py-2 rounded bg-blue-600 hover:bg-blue-700">Search by Name & Author</button>
+          </div>
+
+          <button id="close-manual" class="w-full py-2 bg-gray-700 rounded mt-2">Close</button>
         </div>
       </div>
 
@@ -43,9 +74,17 @@ const shelfKey = "virtual_bookshelf_shelf";
 
 // Elements
 const scanBtn = document.getElementById('scan-btn');
+const manualBtn = document.getElementById('manual-btn');
 const scannerContainer = document.getElementById('scanner-container');
+const manualContainer = document.getElementById('manual-container');
 const qrReaderElem = document.getElementById('qr-reader');
 const closeScannerBtn = document.getElementById('close-scanner');
+const closeManualBtn = document.getElementById('close-manual');
+const isbnInput = document.getElementById('isbn-input');
+const isbnSubmitBtn = document.getElementById('isbn-submit');
+const bookNameInput = document.getElementById('book-name-input');
+const authorInput = document.getElementById('author-input');
+const bookSearchSubmitBtn = document.getElementById('book-search-submit');
 const resultSection = document.getElementById('result');
 const shelfSection = document.getElementById('shelf');
 const clearShelfBtn = document.getElementById('clear-shelf');
@@ -91,6 +130,63 @@ function stopScanner() {
 scanBtn.onclick = startScanner;
 closeScannerBtn.onclick = stopScanner;
 
+// Manual entry handlers
+manualBtn.onclick = () => {
+  manualContainer.classList.remove('hidden');
+  resultSection.innerHTML = "";
+};
+
+closeManualBtn.onclick = () => {
+  manualContainer.classList.add('hidden');
+  isbnInput.value = '';
+  bookNameInput.value = '';
+  authorInput.value = '';
+};
+
+isbnSubmitBtn.onclick = () => {
+  const isbn = isbnInput.value.trim().replace(/[^0-9X]/gi, '');
+  if (isbn) {
+    manualContainer.classList.add('hidden');
+    findBookByISBN(isbn);
+    isbnInput.value = '';
+  } else {
+    showMsg('Please enter a valid ISBN', 'error');
+  }
+};
+
+isbnInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    isbnSubmitBtn.click();
+  }
+});
+
+bookSearchSubmitBtn.onclick = () => {
+  const bookName = bookNameInput.value.trim();
+  const author = authorInput.value.trim();
+  
+  if (!bookName && !author) {
+    showMsg('Please enter at least a book name or author', 'error');
+    return;
+  }
+  
+  manualContainer.classList.add('hidden');
+  findBookByNameAndAuthor(bookName, author);
+  bookNameInput.value = '';
+  authorInput.value = '';
+};
+
+bookNameInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    bookSearchSubmitBtn.click();
+  }
+});
+
+authorInput.addEventListener('keypress', (e) => {
+  if (e.key === 'Enter') {
+    bookSearchSubmitBtn.click();
+  }
+});
+
 // ---- Book and Shelf Logic ----
 
 function findBookByISBN(isbn) {
@@ -108,6 +204,83 @@ function findBookByISBN(isbn) {
     })
     .catch(() => showMsg('Failed to access Google Books API.', 'error'));
 }
+
+function findBookByNameAndAuthor(bookName, author) {
+  let query = '';
+  if (bookName && author) {
+    query = `intitle:${encodeURIComponent(bookName)}+inauthor:${encodeURIComponent(author)}`;
+  } else if (bookName) {
+    query = `intitle:${encodeURIComponent(bookName)}`;
+  } else if (author) {
+    query = `inauthor:${encodeURIComponent(author)}`;
+  }
+  
+  showMsg(`Searching for: <b>${bookName || ''} ${author ? 'by ' + author : ''}</b> ...`);
+  
+  fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}`)
+    .then(r => r.json())
+    .then(data => {
+      if (!data.items || data.items.length === 0) {
+        showMsg("No books found matching your search 😬", 'error');
+        return;
+      }
+      
+      // Show multiple results if found
+      if (data.items.length > 1) {
+        showMultipleResults(data.items);
+      } else {
+        const volume = data.items[0].volumeInfo;
+        const isbn = extractISBN(volume);
+        showBook(volume, isbn);
+        addToShelf({isbn, ...extractBookData(volume)});
+      }
+    })
+    .catch(() => showMsg('Failed to access Google Books API.', 'error'));
+}
+
+function extractISBN(volume) {
+  if (volume.industryIdentifiers) {
+    const isbn13 = volume.industryIdentifiers.find(id => id.type === 'ISBN_13');
+    if (isbn13) return isbn13.identifier;
+    const isbn10 = volume.industryIdentifiers.find(id => id.type === 'ISBN_10');
+    if (isbn10) return isbn10.identifier;
+  }
+  return 'N/A';
+}
+
+function showMultipleResults(items) {
+  const books = items.slice(0, 6).map(item => item.volumeInfo);
+  
+  resultSection.innerHTML = 
+    `<div class="bg-gray-800 rounded p-4">
+      <span class="font-bold mb-2 block">Select a book:</span>
+      <div class="space-y-2">
+        ${books.map((v, idx) => {
+          const isbn = extractISBN(v);
+          return `<div class="bg-gray-900 rounded p-3 cursor-pointer hover:bg-gray-700 transition" onclick="selectBook(${idx})">
+            <div class="flex gap-2">
+              ${v.imageLinks?.thumbnail ? `<img src="${v.imageLinks.thumbnail}" class="w-16 h-20 object-cover rounded">` : '<div class="w-16 h-20 bg-gray-600 rounded flex items-center justify-center text-xs">No Cover</div>'}
+              <div class="flex-1 min-w-0">
+                <div class="font-semibold text-sm">${v.title || 'No Title'}</div>
+                <div class="text-gray-400 text-xs">${v.authors ? v.authors.join(', ') : 'Unknown Author'}</div>
+                ${isbn !== 'N/A' ? `<div class="text-gray-500 text-xs mt-1">ISBN: ${isbn}</div>` : ''}
+              </div>
+            </div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  
+  // Store books in a temporary variable for selection
+  window.searchResults = books;
+}
+
+window.selectBook = function(index) {
+  const volume = window.searchResults[index];
+  const isbn = extractISBN(volume);
+  showBook(volume, isbn);
+  addToShelf({isbn, ...extractBookData(volume)});
+};
 
 function extractBookData(volume) {
   return {
