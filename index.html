@@ -23,7 +23,7 @@
       <!-- Scan Section -->
       <div class="mb-5">
         <button id="scan-btn" class="w-full py-3 mb-2 rounded bg-blue-600 hover:bg-blue-700 font-semibold text-lg">Scan Book Barcode</button>
-        <button id="manual-btn" class="w-full py-3 mb-2 rounded bg-green-600 hover:bg-green-700 font-semibold text-lg" aria-label="Enter book details manually">Enter Manually</button>
+        <button id="manual-btn" class="w-full py-3 mb-2 rounded bg-green-600 hover:bg-green-700 font-semibold text-lg">Enter Manually</button>
         
         <div id="scanner-container" class="hidden bg-gray-800 rounded p-2">
           <div id="qr-reader" style="width:100%"></div>
@@ -71,6 +71,7 @@
 
 <script>
 const shelfKey = "virtual_bookshelf_shelf";
+const MAX_SEARCH_RESULTS = 6; // Maximum number of search results to display
 
 // Elements
 const scanBtn = document.getElementById('scan-btn');
@@ -137,6 +138,12 @@ scanBtn.onclick = startScanner;
 closeScannerBtn.onclick = stopScanner;
 
 // Manual entry handlers
+function clearManualForm() {
+  isbnInput.value = '';
+  bookNameInput.value = '';
+  authorInput.value = '';
+}
+
 manualBtn.onclick = () => {
   manualContainer.classList.remove('hidden');
   resultSection.innerHTML = "";
@@ -144,20 +151,22 @@ manualBtn.onclick = () => {
 
 closeManualBtn.onclick = () => {
   manualContainer.classList.add('hidden');
-  isbnInput.value = '';
-  bookNameInput.value = '';
-  authorInput.value = '';
+  clearManualForm();
 };
 
 isbnSubmitBtn.onclick = () => {
   const isbn = isbnInput.value.trim().replace(/[^0-9X]/gi, '');
-  if (isbn) {
-    manualContainer.classList.add('hidden');
-    findBookByISBN(isbn);
-    isbnInput.value = '';
-  } else {
+  if (!isbn) {
     showMsg('Please enter a valid ISBN', 'error');
+    return;
   }
+  if (isbn.length !== 10 && isbn.length !== 13) {
+    showMsg('ISBN must be 10 or 13 digits', 'error');
+    return;
+  }
+  manualContainer.classList.add('hidden');
+  findBookByISBN(isbn);
+  clearManualForm();
 };
 
 isbnInput.addEventListener('keypress', (e) => {
@@ -177,8 +186,7 @@ bookSearchSubmitBtn.onclick = () => {
   
   manualContainer.classList.add('hidden');
   findBookByNameAndAuthor(bookName, author);
-  bookNameInput.value = '';
-  authorInput.value = '';
+  clearManualForm();
 };
 
 bookNameInput.addEventListener('keypress', (e) => {
@@ -221,7 +229,7 @@ function findBookByNameAndAuthor(bookName, author) {
     query = `inauthor:${encodeURIComponent(author)}`;
   }
   
-  const searchText = `${escapeHtml(bookName || '')} ${author ? 'by ' + escapeHtml(author) : ''}`;
+  const searchText = `${escapeHtml(bookName || '')}${author ? ' by ' + escapeHtml(author) : ''}`;
   showMsg(`Searching for: <b>${searchText}</b> ...`);
   
   fetch(`https://www.googleapis.com/books/v1/volumes?q=${query}`)
@@ -256,7 +264,6 @@ function extractISBN(volume) {
 }
 
 function showMultipleResults(items) {
-  const MAX_SEARCH_RESULTS = 6; // Limit results to avoid overwhelming the user
   const books = items.slice(0, MAX_SEARCH_RESULTS).map(item => item.volumeInfo);
   
   resultSection.innerHTML = 
@@ -294,7 +301,6 @@ function showMultipleResults(items) {
       </div>`;
     
     const selectHandler = () => {
-      const isbn = extractISBN(v);
       showBook(v, isbn);
       addToShelf({isbn, ...extractBookData(v)});
     };
