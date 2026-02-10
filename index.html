@@ -164,12 +164,22 @@ isbnSubmitBtn.onclick = () => {
     showMsg('ISBN must be 10 or 13 digits', 'error');
     return;
   }
+  // Validate that 'X' only appears as the last character in ISBN-10
+  if (isbn.length === 10 && isbn.toUpperCase().indexOf('X') !== -1 && isbn.toUpperCase().indexOf('X') !== 9) {
+    showMsg('In ISBN-10, X is only valid as the last character', 'error');
+    return;
+  }
+  // ISBN-13 should not contain X
+  if (isbn.length === 13 && isbn.toUpperCase().indexOf('X') !== -1) {
+    showMsg('ISBN-13 cannot contain X', 'error');
+    return;
+  }
   manualContainer.classList.add('hidden');
   findBookByISBN(isbn);
   clearManualForm();
 };
 
-isbnInput.addEventListener('keypress', (e) => {
+isbnInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     isbnSubmitBtn.click();
   }
@@ -189,13 +199,13 @@ bookSearchSubmitBtn.onclick = () => {
   clearManualForm();
 };
 
-bookNameInput.addEventListener('keypress', (e) => {
+bookNameInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     bookSearchSubmitBtn.click();
   }
 });
 
-authorInput.addEventListener('keypress', (e) => {
+authorInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     bookSearchSubmitBtn.click();
   }
@@ -306,7 +316,7 @@ function showMultipleResults(items) {
     };
     
     resultDiv.addEventListener('click', selectHandler);
-    resultDiv.addEventListener('keypress', (e) => {
+    resultDiv.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
         selectHandler();
